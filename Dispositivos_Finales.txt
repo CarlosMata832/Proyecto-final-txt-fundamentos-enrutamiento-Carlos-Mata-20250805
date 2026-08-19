@@ -1,0 +1,151 @@
+! ============================================================
+! CONFIGURACIÓN WLC - Wireless LAN Controller
+! ============================================================
+! El WLC gestiona los Access Points y los perfiles WiFi (WLANs)
+! de forma centralizada. Se accede a él mediante interfaz web.
+
+MANAGEMENT (Interfaz de gestión del WLC)
+-----------------------------------------
+IP: 8.5.72.2              ! IP del WLC en la red WiFi (VLAN 6 / 8.5.72.0/23)
+Mask: 255.255.254.0       ! Máscara /23 (red de 512 hosts para WiFi)
+Gateway: 8.5.72.1         ! Gateway apunta al SVI VLAN 6 del SMC1
+DNS: 8.5.74.131           ! Servidor DNS interno
+Management VLAN ID: 0 (untagged)
+                          ! El WLC no usa etiqueta VLAN en su interfaz de gestión
+                          ! (recibe tráfico sin etiquetar por la VLAN nativa del switch)
+
+! Para acceder al WLC, abrir un navegador en la PC0 y escribir:
+! http://8.5.72.2
+
+Credenciales de acceso al WLC:
+Usuario: Admin
+Password: Cisco123
+
+! ============================================================
+! REDES INALÁMBRICAS (WLANs)
+! ============================================================
+! Se configuran 3 SSIDs (perfiles de red WiFi)
+
+! --- WLAN 1: Corporativos ---
+Nombre SSID: Corporativos
+Seguridad: WPA2 Personal / PSK
+                          ! WPA2-Personal usa una clave compartida (no requiere servidor RADIUS)
+Clave (PSK): Cisco123     ! Contraseña de acceso a la red WiFi
+
+! --- WLAN 2: Biblioteca ---
+Nombre SSID: Biblioteca
+Seguridad: WPA2 Personal / PSK
+  Layer 2 Security: WPA+WPA2        ! Habilita compatibilidad WPA y WPA2
+  Policy + Encryption: AES          ! Cifrado AES (más seguro que TKIP)
+  PSK format: Cisco123              ! Clave de acceso
+
+! --- WLAN 3: Campus ---
+Nombre SSID: Campus
+Seguridad: WPA2 Personal / PSK
+  Layer 2 Security: WPA+WPA2
+  Policy + Encryption: AES
+  PSK format: Cisco123
+
+! ============================================================
+! GRUPOS DE ACCESS POINTS (AP Groups)
+! ============================================================
+! Los AP Groups determinan qué WLANs transmite cada Access Point
+
+AP GROUP: BIBLIOTECA
+  WLANs asignadas:
+    - WLAN 1: Corporativos   ! Los empleados corporativos pueden conectarse aquí
+    - WLAN 2: Biblioteca     ! Red exclusiva para usuarios de la biblioteca
+  AP asignado: AP-BIBLIOTECA ! El AP físico ubicado en la biblioteca
+
+AP GROUP: LOBBY
+  WLANs asignadas:
+    - WLAN 1: Corporativos   ! Corporativos también tienen señal en el lobby
+    - WLAN 3: Campus         ! Red para usuarios del campus general
+  AP asignado: AP-LOBBY      ! El AP físico ubicado en el lobby/campus
+
+! ============================================================
+! SERVIDOR DHCP PARA CLIENTES WIFI
+! ============================================================
+! Se configura en: Controller → Interfaces → management
+
+Primary DHCP Server: 8.5.75.97
+                          ! Apunta al servidor DHCP en R3-DHCP (pool WIFI)
+                          ! Los clientes WiFi recibirán IPs de la red 8.5.72.0/23
+Secondary DHCP Server: 0.0.0.0
+                          ! Sin servidor DHCP secundario configurado
+
+
+! ============================================================
+! CONFIGURACIÓN SERVIDOR DNS / WEB INTRANET
+! ============================================================
+! Configurado manualmente (IP estática) desde:
+! Desktop → IP Configuration → Static
+
+IP Address: 8.5.74.131          ! IP estática del servidor DNS e Intranet Web
+Subnet Mask: 255.255.255.128    ! Máscara /25 — pertenece a la red 8.5.74.128/25 (VLAN 2 Servidores)
+Default Gateway: 8.5.74.129    ! Gateway = SVI VLAN 2 del SMC1
+DNS Server: 8.5.74.131         ! El servidor es su propio DNS (auto-referencia)
+
+
+! ============================================================
+! CONFIGURACIÓN SERVIDOR FTP
+! ============================================================
+! Configurado manualmente desde:
+! Desktop → IP Configuration → Static
+
+IP Address: 8.5.74.132          ! IP estática del servidor FTP
+Subnet Mask: 255.255.255.128    ! Red 8.5.74.128/25 (VLAN 2 Servidores)
+Default Gateway: 8.5.74.129    ! Gateway = SVI VLAN 2 del SMC1
+DNS Server: 8.5.74.131         ! Usa el servidor DNS interno
+
+
+! ============================================================
+! CONFIGURACIÓN SERVIDOR MAIL (Correo Electrónico)
+! ============================================================
+! Configurado manualmente desde:
+! Desktop → IP Configuration → Static
+
+IP Address: 8.5.74.130          ! IP estática del servidor de correo
+Subnet Mask: 255.255.255.128    ! Red 8.5.74.128/25 (VLAN 2 Servidores)
+Default Gateway: 8.5.74.129    ! Gateway = SVI VLAN 2 del SMC1
+DNS Server: 8.5.74.131         ! Usa el servidor DNS interno
+
+
+! ============================================================
+! CONFIGURACIÓN LAPTOP BIBLIOTECA (Cliente WiFi)
+! ============================================================
+! Configurado desde: Config → Wireless0
+
+Port Status: On                 ! La interfaz inalámbrica está habilitada
+SSID: Biblioteca                ! Se conecta a la red WiFi "Biblioteca" (emitida por AP-BIBLIOTECA)
+Authentication: WPA2-PSK        ! Autenticación con clave compartida WPA2
+PSK Pass Phrase: Cisco123       ! Contraseña de la red WiFi
+Encryption Type: AES            ! Cifrado AES (Advanced Encryption Standard)
+IP Configuration: DHCP          ! Obtiene su IP automáticamente desde R3-DHCP (pool WIFI)
+
+
+! ============================================================
+! CONFIGURACIÓN LAPTOP CAMPUS (Cliente WiFi)
+! ============================================================
+! Configurado desde: Config → Wireless0
+
+Port Status: On                 ! Interfaz inalámbrica habilitada
+SSID: Campus                    ! Se conecta a la red "Campus" (emitida por AP-LOBBY)
+Authentication: WPA2-PSK        ! Autenticación WPA2 con clave
+PSK Pass Phrase: Cisco123       ! Contraseña de la red
+Encryption Type: AES            ! Cifrado AES
+IP Configuration: DHCP          ! IP asignada por DHCP automáticamente
+
+
+! ============================================================
+! CONFIGURACIÓN LAPTOP CORPORATIVO (Cliente WiFi)
+! ============================================================
+! Configurado desde: Config → Wireless0
+
+Port Status: On                 ! Interfaz inalámbrica habilitada
+SSID: Corporativos              ! Se conecta a la red "Corporativos"
+                                ! (disponible tanto en AP-BIBLIOTECA como en AP-LOBBY)
+Authentication: WPA2-PSK        ! Autenticación WPA2 con PSK
+PSK Pass Phrase: Cisco123       ! Contraseña de acceso
+Encryption Type: AES            ! Cifrado AES
+IP Configuration: DHCP          ! Obtiene IP automáticamente del servidor DHCP en R3

@@ -1,0 +1,141 @@
+! ============================================================
+! CONFIGURACIÓN R3-DHCP - Router Central / Servidor DHCP
+! ============================================================
+! Este router actúa como el hub de la red:
+! - Conecta a SMC1, R1 y R2 mediante enlaces P2P /30
+! - Provee servicio DHCP a todas las VLANs de la topología
+! - Contiene las rutas estáticas hacia todas las subredes
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname R3-DHCP                ! Asigna el nombre "R3-DHCP" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia mostrado al conectarse
+
+! ============================================================
+! INTERFACES P2P (Punto a Punto /30)
+! ============================================================
+
+int gig0/0/0                            ! Entra a la interfaz GigabitEthernet 0/0/0 (hacia SMC1)
+ip add 8.5.75.97 255.255.255.252        ! IP del enlace P2P: Red 8.5.75.96/30 | SMC1: .98 | R3: .97
+no sh                                   ! Activa la interfaz
+exit
+
+int gig0/1/0                            ! Entra a la interfaz GigabitEthernet 0/1/0 (hacia R2)
+ip add 8.5.75.105 255.255.255.252       ! IP del enlace P2P: Red 8.5.75.104/30 | R3: .105 | R2: .106
+no sh                                   ! Activa la interfaz
+exit
+
+interface gig0/2/0                      ! Entra a la interfaz GigabitEthernet 0/2/0 (hacia R1)
+ip add 8.5.75.101 255.255.255.252       ! IP del enlace P2P: Red 8.5.75.100/30 | R3: .101 | R1: .102
+no sh                                   ! Activa la interfaz
+exit
+
+! ============================================================
+! CONFIGURACIÓN DEL SERVIDOR DHCP
+! ============================================================
+
+! --- EXCLUSIONES DE DHCP ---
+! Las IPs excluidas NO serán asignadas automáticamente por DHCP
+! (se reservan para gateways, interfaces de routers, servidores, etc.)
+
+ip dhcp excluded-address 8.5.74.1              ! Excluye: Gateway VLAN 3 (Empleados) en SMC1
+ip dhcp excluded-address 8.5.75.1              ! Excluye: Gateway VLAN 4 (Finanzas) en SMC1
+ip dhcp excluded-address 8.5.75.65             ! Excluye: Gateway VLAN 5 (TI) en SMC1
+ip dhcp excluded-address 8.5.72.1 8.5.72.2    ! Excluye: Gateway WiFi (8.5.72.1) y WLC (8.5.72.2)
+ip dhcp excluded-address 8.5.64.1 8.5.64.3    ! Excluye: VIP HSRP (.1), R1 (.2) y R2 (.3) de VLAN 300
+ip dhcp excluded-address 8.5.75.33 8.5.75.35  ! Excluye: VIP HSRP (.33), R1 (.34) y R2 (.35) de VLAN 500
+
+! --- POOL DHCP: FINANZAS (VLAN 4) ---
+ip dhcp pool FINANZAS                   ! Crea el pool DHCP con el nombre "FINANZAS"
+ network 8.5.75.0 255.255.255.224      ! Red a distribuir: 8.5.75.0/27 (30 hosts usables)
+ default-router 8.5.75.1               ! Gateway por defecto para los clientes de esta VLAN
+ dns-server 8.5.74.131                 ! Servidor DNS (DNS-WEB-INTRANET)
+exit
+
+! --- POOL DHCP: TI (VLAN 5) ---
+ip dhcp pool TI                         ! Crea el pool DHCP "TI"
+ network 8.5.75.64 255.255.255.224     ! Red: 8.5.75.64/27 (30 hosts usables)
+ default-router 8.5.75.65              ! Gateway de la VLAN 5 (TI) en SMC1
+ dns-server 8.5.74.131                 ! Servidor DNS
+exit
+
+! --- POOL DHCP: WIFI (VLAN 6) ---
+ip dhcp pool WIFI                       ! Crea el pool DHCP "WIFI"
+ network 8.5.72.0 255.255.254.0        ! Red: 8.5.72.0/23 (510 hosts usables — para dispositivos WiFi)
+ default-router 8.5.72.1               ! Gateway de la VLAN WiFi en SMC1
+ dns-server 8.5.74.131                 ! Servidor DNS
+exit
+
+! --- POOL DHCP: ACADEMICOS (VLAN 500) ---
+ip dhcp pool ACADEMICOS                 ! Crea el pool DHCP "ACADEMICOS"
+ network 8.5.75.32 255.255.255.224     ! Red: 8.5.75.32/27 (30 hosts usables)
+ default-router 8.5.75.33              ! Gateway virtual HSRP para VLAN 500
+ dns-server 8.5.74.131                 ! Servidor DNS
+exit
+
+! --- POOL DHCP: DOCENTES_ESTUDIANTES (VLAN 300) ---
+ip dhcp pool DOCENTES_ESTUDIANTES       ! Crea el pool DHCP "DOCENTES_ESTUDIANTES"
+ network 8.5.64.0 255.255.248.0        ! Red: 8.5.64.0/21 (2046 hosts usables — red muy grande)
+ default-router 8.5.64.1               ! Gateway virtual HSRP para VLAN 300
+ dns-server 8.5.74.131                 ! Servidor DNS
+exit
+
+! --- POOL DHCP: EMPLEADOS (VLAN 3) ---
+ip dhcp pool EMPLEADOS                  ! Crea el pool DHCP "EMPLEADOS"
+ network 8.5.74.0 255.255.255.128      ! Red: 8.5.74.0/25 (126 hosts usables)
+ default-router 8.5.74.1               ! Gateway VLAN 3 (Empleados) en SMC1
+ dns-server 8.5.74.131                 ! Servidor DNS
+exit
+
+! ============================================================
+! RUTAS ESTÁTICAS
+! ============================================================
+! R3-DHCP necesita rutas para alcanzar todas las subredes de la topología
+
+! --- RUTAS HACIA REDES DETRÁS DE SMC1 (vía 8.5.75.98) ---
+ip route 8.5.74.128 255.255.255.128 8.5.75.98
+                                ! Ruta hacia VLAN 2 (Servidores) → via SMC1
+ip route 8.5.74.0 255.255.255.128 8.5.75.98
+                                ! Ruta hacia VLAN 3 (Empleados) → via SMC1
+ip route 8.5.75.0 255.255.255.224 8.5.75.98
+                                ! Ruta hacia VLAN 4 (Finanzas) → via SMC1
+ip route 8.5.75.64 255.255.255.224 8.5.75.98
+                                ! Ruta hacia VLAN 5 (TI) → via SMC1
+ip route 8.5.72.0 255.255.254.0 8.5.75.98
+                                ! Ruta hacia VLAN 6 (WiFi) → via SMC1
+
+! --- RUTAS HACIA REDES DETRÁS DE R2 (HSRP Activo) - PRINCIPAL ---
+ip route 8.5.64.0 255.255.248.0 8.5.75.106
+                                ! Ruta hacia VLAN 300 (Docentes/Estudiantes) → via R2 (primaria)
+ip route 8.5.75.32 255.255.255.224 8.5.75.106
+                                ! Ruta hacia VLAN 500 (Académicos) → via R2 (primaria)
+
+! --- RUTAS HACIA REDES DETRÁS DE R1 (HSRP Standby) - RESPALDO (métrica 5) ---
+ip route 8.5.64.0 255.255.248.0 8.5.75.102 5
+                                ! Ruta de respaldo hacia VLAN 300 via R1
+                                ! (métrica administrativa 5 = menor prioridad, solo si R2 falla)
+ip route 8.5.75.32 255.255.255.224 8.5.75.102 5
+                                ! Ruta de respaldo hacia VLAN 500 via R1 (métrica 5)
+
+! --- RUTA PREDETERMINADA HACIA EL ISP ---
+ip route 0.0.0.0 0.0.0.0 209.165.200.226
+                                ! Ruta por defecto: todo tráfico hacia Internet
+                                ! se envía al router ISP (209.165.200.226)
+exit
+
+! ============================================================
+! VERIFICACIÓN
+! ============================================================
+show ip interface brief         ! Verifica estado y direcciones IP de todas las interfaces
+show ip dhcp pool               ! Muestra la configuración de los pools DHCP
+show ip dhcp binding            ! Lista las IPs asignadas (binding MAC ↔ IP)
+show ip route                   ! Muestra la tabla de enrutamiento completa
+
+! --- PRUEBAS DE CONECTIVIDAD ---
+ping 8.5.75.102                 ! Verifica conectividad hacia R1 (enlace P2P)
+ping 8.5.75.106                 ! Verifica conectividad hacia R2 (enlace P2P)
+ping 8.5.75.98                  ! Verifica conectividad hacia SMC1 (enlace P2P)
+ping 8.5.74.1                   ! Verifica alcance al Gateway de VLAN 3 (Empleados) en SMC1
+ping 8.5.75.1                   ! Verifica alcance al Gateway de VLAN 4 (Finanzas) en SMC1
+ping 8.5.75.33                  ! Verifica alcance a la IP virtual HSRP de VLAN 500

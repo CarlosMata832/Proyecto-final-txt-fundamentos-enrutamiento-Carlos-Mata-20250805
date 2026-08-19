@@ -1,0 +1,119 @@
+! ============================================================
+! CONFIGURACIÓN SW3 - Switch de Acceso (Área Corporativa/Servidores)
+! ============================================================
+
+enable                          ! Entra al modo EXEC privilegiado
+configure terminal              ! Entra al modo de configuración global
+hostname SW3                    ! Asigna el nombre "SW3" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia (MOTD) que aparece al conectarse
+
+! --- CREACIÓN DE VLANs ---
+vlan 2                          ! Crea la VLAN 2
+name SERVIDORES                 ! Nombre: SERVIDORES (para servidores FTP, Mail, DNS, etc.)
+vlan 3                          ! Crea la VLAN 3
+name EMPLEADOS                  ! Nombre: EMPLEADOS (red de usuarios internos)
+vlan 4                          ! Crea la VLAN 4
+name FINANZAS                   ! Nombre: FINANZAS (red del área de finanzas)
+vlan 5                          ! Crea la VLAN 5
+name TI                         ! Nombre: TI (red del área de Tecnología de Información)
+vlan 6                          ! Crea la VLAN 6
+name Wifi                       ! Nombre: Wifi (red para dispositivos inalámbricos/WLC)
+vlan 7                          ! Crea la VLAN 7
+name Nativa                     ! Nombre: Nativa (VLAN de administración, no etiquetada en trunk)
+exit                            ! Sale del modo de configuración de VLANs
+
+! --- PUERTOS FA0/1-3 → VLAN 2 (SERVIDORES) ---
+int range fa0/1-3               ! Entra al rango de interfaces fa0/1, fa0/2 y fa0/3
+sw mo acc                       ! Configura todos en modo acceso
+sw acc vlan 2                   ! Asigna la VLAN 2 (Servidores)
+spanning-tree portfast          ! PortFast: transición inmediata a forwarding (dispositivos finales)
+spanning-tree bpduguard enable  ! BPDU Guard: deshabilita el puerto si detecta un switch (BPDU)
+sw port-security maximun 2      ! Límite de 2 MACs por puerto
+sw port-security violation shutdown
+                                ! Si se supera el límite: puerto en err-disabled
+sw port-security mac-address sticky
+                                ! Aprende MACs dinámicamente y las guarda en la configuración
+no sh                           ! Activa las interfaces (no shutdown)
+exit
+
+! --- PUERTOS FA0/4-8 → VLAN 3 (EMPLEADOS) ---
+int range fa0/4-8               ! Rango de interfaces fa0/4 a fa0/8
+sw mo acc                       ! Modo acceso
+sw acc vlan 3                   ! Asigna la VLAN 3 (Empleados)
+spanning-tree portfast          ! PortFast activado
+spanning-tree bpduguard enable  ! BPDU Guard activado
+sw port-security                ! Habilita la seguridad de puertos
+sw port-security maximun 2      ! Máximo 2 MACs
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh
+exit
+
+! --- PUERTOS FA0/9-11 → VLAN 4 (FINANZAS) ---
+int ra fa0/9-11                 ! Rango de interfaces fa0/9 a fa0/11 (forma abreviada de "range")
+sw mo acc                       ! Modo acceso
+sw acc vlan 4                   ! Asigna la VLAN 4 (Finanzas)
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security 
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh
+exit
+
+! --- PUERTOS FA0/12-13 → VLAN 5 (TI) ---
+int rang fa0/12-13              ! Rango de interfaces fa0/12 y fa0/13
+sw mo acc                       ! Modo acceso
+sw acc vlan 5                   ! Asigna la VLAN 5 (TI)
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security 
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh
+exit
+
+! --- PUERTOS FA0/14-18 → VLAN 6 (WIFI) ---
+int rang fa0/14-18              ! Rango de interfaces fa0/14 a fa0/18
+sw mo acc                       ! Modo acceso
+sw acc vlan 6                   ! Asigna la VLAN 6 (WiFi/WLC)
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security 
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh
+exit
+
+! ============================================================
+! ETHERCHANNEL Po2 HACIA SMC1 (LACP - Agregación de enlaces)
+! ============================================================
+! Se agrupan gig0/1 y gig0/2 en un canal lógico hacia el Switch Multicapa SMC1
+
+int port-channel 2              ! Entra a la interfaz lógica EtherChannel 2
+sw mo tru                       ! Configura el EtherChannel en modo trunk
+sw tru native vlan 7            ! VLAN nativa del trunk: VLAN 7 (Nativa)
+sw tru all vlan 2,3,4,5,6,7    ! VLANs permitidas: 2 (Serv.), 3 (Emp.), 4 (Fin.), 5 (TI), 6 (WiFi), 7 (Nativa)
+sw nonegotiate                  ! Desactiva DTP (no negocia el trunk automáticamente)
+no sh                           ! Activa la interfaz
+exit
+
+int ra gig0/1-2                 ! Entra al rango de interfaces GigabitEthernet 0/1 y 0/2
+sw mo tru                       ! Modo trunk en ambos puertos físicos
+sw tru native vlan 7            ! VLAN nativa 7
+sw tru all vlan 2,3,4,5,6,7    ! VLANs permitidas
+channel-group 2 mode active     ! Agrega estas interfaces al EtherChannel 2 en modo ACTIVE (LACP)
+                                ! Modo ACTIVE: el switch inicia activamente la negociación del canal
+no sh                           ! Activa las interfaces
+exit
+end                             ! Sale al modo EXEC privilegiado
+
+! --- VERIFICACIÓN ---
+show EtherChannel summary       ! Muestra estado del EtherChannel 2 (protocolo, interfaces, flags)
+show vlan brief                 ! Muestra todas las VLANs y los puertos asignados a cada una
+
+! ir a SW4

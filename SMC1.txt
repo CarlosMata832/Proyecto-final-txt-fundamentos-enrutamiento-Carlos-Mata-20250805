@@ -1,0 +1,129 @@
+! ============================================================
+! CONFIGURACIÓN SMC1 - Switch Multicapa (Core / Enrutamiento Inter-VLAN)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname SMC1                   ! Asigna el nombre "SMC1" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia (MOTD) mostrado al conectarse
+
+! ============================================================
+! SEGURIDAD DE ACCESO - SSH y usuarios locales
+! ============================================================
+enable secret Cisco123          ! Configura contraseña cifrada para acceso al modo privilegiado
+service password-encryption     ! Cifra todas las contraseñas en texto plano del archivo de configuración
+username Admin privilege 15 secret Cisco123
+                                ! Crea usuario "Admin" con privilegio 15 (máximo) y contraseña cifrada
+username 2025-0805 privilege 15 secret Cisco123
+                                ! Crea usuario con matrícula, privilegio 15 y contraseña cifrada
+ip domain-name itla.local       ! Define el dominio del dispositivo (requerido para generar llaves RSA/SSH)
+crypto key generate rsa general-keys modulus 1024
+                                ! Genera par de llaves RSA de 1024 bits (necesario para habilitar SSH)
+
+ip ssh version 2                ! Habilita únicamente SSH versión 2 (más seguro que SSHv1)
+line vty 0 4                    ! Entra a las líneas de terminal virtual 0 a 4 (acceso remoto)
+login local                     ! Requiere autenticación con usuarios locales (username/password)
+transport input ssh             ! Solo permite conexiones SSH (bloquea Telnet)
+exit
+
+! ============================================================
+! ENRUTAMIENTO ENTRE VLANs
+! ============================================================
+ip routing                      ! Habilita el enrutamiento IP en el switch multicapa
+                                ! (permite que el switch enrute tráfico entre VLANs directamente)
+
+! --- CREACIÓN DE VLANs ---
+vlan 2                          ! Crea VLAN 2
+name SERVIDORES                 ! Nombre: SERVIDORES (DNS, FTP, Mail, Web Intranet)
+vlan 3                          ! Crea VLAN 3
+name EMPLEADOS                  ! Nombre: EMPLEADOS
+vlan 4                          ! Crea VLAN 4
+name FINANZAS                   ! Nombre: FINANZAS
+vlan 5                          ! Crea VLAN 5 (nota: en el original se repite vlan 5 con nombre WIFI)
+name TI                         ! Nombre: TI (Tecnología de Información)
+vlan 5                          ! (Duplicado en el original — debería ser VLAN 6)
+name WIFI                       ! Nombre: WIFI
+vlan 7                          ! Crea VLAN 7
+name NATIVA                     ! Nombre: NATIVA (VLAN de administración, sin etiquetar en trunks)
+exit
+
+! ============================================================
+! INTERFACES VLAN (SVI - Switched Virtual Interfaces)
+! Estas interfaces actúan como Gateway de cada VLAN
+! ============================================================
+
+int vlan 2                      ! Entra a la interfaz virtual de la VLAN 2 (Servidores)
+ip add 8.5.74.129 255.255.255.128
+                                ! Asigna la IP 8.5.74.129/25 — actúa como default gateway de la VLAN 2
+ip helper-address 8.5.75.97    ! Redirige las solicitudes DHCP broadcast al servidor DHCP en R3 (8.5.75.97)
+                                ! (ip helper convierte el broadcast en unicast hacia el servidor DHCP)
+
+int vlan 3                      ! Entra a la interfaz virtual de la VLAN 3 (Empleados)
+ip add 8.5.74.1 255.255.255.224
+                                ! Gateway de la VLAN 3: 8.5.74.1/27
+ip helper-address 8.5.75.97    ! Redirige DHCP al servidor R3-DHCP
+no sh                           ! Activa la interfaz SVI
+
+int vlan 4                      ! Entra a la interfaz virtual de la VLAN 4 (Finanzas)
+ip add 8.5.75.1 255.255.255.224
+                                ! Gateway de la VLAN 4: 8.5.75.1/27
+ip helper-address 8.5.75.97    ! Redirige DHCP al servidor R3-DHCP
+no sh                           ! Activa la interfaz SVI
+
+int vlan 5                      ! Entra a la interfaz virtual de la VLAN 5 (TI)
+ip add 8.5.75.65 255.255.255.224
+                                ! Gateway de la VLAN 5: 8.5.75.65/27
+ip helper-address 8.5.75.97    ! Redirige DHCP al servidor R3-DHCP
+no sh                           ! Activa la interfaz SVI
+
+int vlan 6                      ! Entra a la interfaz virtual de la VLAN 6 (WiFi)
+ip add 8.5.72.1 255.255.254.0  ! Gateway de la VLAN 6: 8.5.72.1/23 (red grande para dispositivos WiFi)
+ip helper-address 8.5.75.97    ! Redirige DHCP al servidor R3-DHCP
+exit
+
+! --- ENLACE P2P HACIA R3-DHCP ---
+int gig1/1/1                    ! Entra a la interfaz GigabitEthernet 1/1/1 (enlace punto a punto)
+no switchport                   ! Convierte el puerto de switching a modo enrutado (capa 3)
+ip add 8.5.75.98 255.255.255.252
+                                ! Asigna la IP del enlace P2P /30 hacia R3-DHCP (8.5.75.97)
+no sh                           ! Activa la interfaz
+
+! ============================================================
+! ETHERCHANNEL Po2 HACIA SW3 (LACP - Agregación de enlaces)
+! ============================================================
+
+int port-channel 2              ! Interfaz lógica del EtherChannel 2
+switchport mode trunk           ! Modo trunk (transporta múltiples VLANs)
+switchport trunk native vlan 7  ! VLAN nativa: 7 (tráfico sin etiquetar)
+switchport trunk allowed vlan 2,3,4,5,6,7
+                                ! VLANs permitidas en el trunk: 2, 3, 4, 5, 6 y 7
+sw nonegotieate                 ! Desactiva DTP (nota: hay un error tipográfico en el original)
+
+no sh                           ! Activa la interfaz
+
+inte ra gig1/0/22-23            ! Rango de interfaces físicas gig1/0/22 y gig1/0/23
+switchport mode trunk           ! Modo trunk
+switchport trunk native vlan 7  ! VLAN nativa 7
+sw trunk allowed vlan 2,3,4,5,6,7
+                                ! VLANs permitidas
+sw nonegotiate                  ! Desactiva DTP
+channel-group 2 mode active     ! Agrega al EtherChannel 2 en modo ACTIVE (LACP)
+exit
+
+! --- TRUNK HACIA SW4 (solo VLANs de WiFi) ---
+int gig1/0/24                   ! Entra a la interfaz gig1/0/24 (hacia SW4)
+sw mo tru                       ! Modo trunk
+sw tru native vlan 7            ! VLAN nativa 7
+sw tru allowed vlan 6,7         ! Solo VLANs 6 (WiFi) y 7 (Nativa)
+sw nonegotiate                  ! Desactiva DTP
+no sh                           ! Activa la interfaz
+exit
+
+! --- RUTA ESTÁTICA PREDETERMINADA ---
+ip route 0.0.0.0 0.0.0.0 8.5.75.97
+                                ! Ruta por defecto: todo tráfico desconocido se envía
+                                ! hacia R3-DHCP (8.5.75.97) como next-hop (puerta de enlace)
+end                             ! Sale al modo EXEC privilegiado
+
+! ir a R3-DHCP

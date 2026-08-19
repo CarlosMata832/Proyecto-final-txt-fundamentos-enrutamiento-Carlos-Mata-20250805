@@ -1,0 +1,54 @@
+! ============================================================
+! CONFIGURACIÓN R2 - Router HSRP Activo (Router Principal)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname R2                     ! Asigna el nombre "R2" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia que aparece al conectarse
+
+! --- ENLACE P2P HACIA R3-DHCP ---
+interface gigabitEthernet 0/1/0         ! Entra a la interfaz GigabitEthernet 0/1/0
+ ip address 8.5.75.106 255.255.255.252  ! Asigna la IP del enlace punto a punto /30 hacia R3-DHCP
+                                        ! Red: 8.5.75.104/30 | R3: .105 | R2: .106
+ no shutdown                            ! Activa la interfaz
+
+! ============================================================
+! SUBINTERFACES PARA ENRUTAMIENTO INTER-VLAN (Router-on-a-Stick)
+! ============================================================
+! R2 recibe tráfico trunk de SW2 y actúa como el Router ACTIVO de HSRP
+
+! --- SUBINTERFAZ PARA VLAN 300 (DOCENTES_ESTUDIANTES) ---
+interface gigabitEthernet 0/1.300       ! Crea subinterfaz .300 en gig0/1 (para VLAN 300)
+ encapsulation dot1Q 300               ! Encapsula con etiqueta 802.1Q para VLAN 300
+ ip address 8.5.64.3 255.255.248.0     ! IP de R2 en la VLAN 300: 8.5.64.3/21 (tercera dirección usable)
+ standby 30 ip 8.5.64.1               ! HSRP grupo 30: IP virtual compartida (Gateway para hosts) = 8.5.64.1
+ standby 30 priority 120              ! Prioridad 120 → R2 es el ROUTER ACTIVO (mayor prioridad que R1=110)
+ standby 30 preempt                   ! Preempt: R2 retoma el rol activo si se recupera tras una falla
+
+! --- SUBINTERFAZ PARA VLAN 500 (ACADEMICOS) ---
+interface gigabitEthernet 0/1.500       ! Crea subinterfaz .500 en gig0/1 (para VLAN 500)
+ encapsulation dot1Q 500               ! Encapsula con etiqueta 802.1Q para VLAN 500
+ ip address 8.5.75.35 255.255.255.224  ! IP de R2 en la VLAN 500: 8.5.75.35/27 (tercera dirección usable)
+ standby 50 ip 8.5.75.33              ! HSRP grupo 50: IP virtual (Gateway) = 8.5.75.33
+ standby 50 priority 120              ! Prioridad 120 → R2 es ACTIVO para VLAN 500
+ standby 50 preempt                   ! Preempt activado
+
+! --- SUBINTERFAZ PARA VLAN 999 (ADMIN_NATIVA) ---
+interface gigabitEthernet 0/1.999       ! Crea subinterfaz .999 (para la VLAN nativa/admin)
+ encapsulation dot1Q 999 native        ! VLAN 999 como nativa (tráfico sin etiquetar en el trunk)
+ no ip address                         ! Sin IP asignada en la VLAN nativa
+
+! --- RUTA ESTÁTICA PREDETERMINADA ---
+ip route 0.0.0.0 0.0.0.0 8.5.75.105   ! Ruta por defecto: todo tráfico desconocido
+                                        ! se envía hacia R3-DHCP (8.5.75.105) como next-hop
+end                                     ! Sale al modo EXEC privilegiado
+
+! --- VERIFICACIÓN ---
+show standby brief                      ! Muestra el estado HSRP: R2 debe aparecer como "Active"
+                                        ! para los grupos 30 (VLAN 300) y 50 (VLAN 500)
+
+! --- PRUEBAS DE CONECTIVIDAD ---
+ping 8.5.64.2                           ! Verifica conectividad hacia R1 en la VLAN 300
+ping 8.5.75.34                          ! Verifica conectividad hacia R1 en la VLAN 500

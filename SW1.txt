@@ -1,0 +1,116 @@
+! ============================================================
+! CONFIGURACIÓN SW1 - Switch de Acceso Campus (Edificio Académico)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname SW1                    ! Asigna el nombre "SW1" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Configura un mensaje de advertencia (Message of the Day)
+                                ! que se muestra al conectarse al dispositivo
+
+! --- CREACIÓN DE VLANs ---
+vlan 300                        ! Crea la VLAN 300
+name DOCENTES_ESTUDIANTES       ! Asigna el nombre "DOCENTES_ESTUDIANTES" a la VLAN 300
+vlan 500                        ! Crea la VLAN 500
+name ACADEMICOS                 ! Asigna el nombre "ACADEMICOS" a la VLAN 500
+vlan 999                        ! Crea la VLAN 999 (usada como VLAN nativa/admin)
+name ADMIN_NATIVA               ! Asigna el nombre "ADMIN_NATIVA" a la VLAN 999
+exit                            ! Sale del modo de configuración de VLAN
+
+! --- PUERTO DE ACCESO FA0/9 → VLAN 500 (ACADEMICOS) ---
+int fa0/9                       ! Entra a la interfaz FastEthernet 0/9
+sw mo acc                       ! Configura el puerto como modo acceso (un solo VLAN)
+sw acc vlan 500                 ! Asigna la VLAN 500 a este puerto de acceso
+spanning-tree portfast          ! Activa PortFast: el puerto pasa directamente a estado forwarding
+                                ! (evita la espera de 30s de STP, ideal para dispositivos finales)
+spanning-tree bpduguard enable  ! Activa BPDU Guard: si el puerto recibe una BPDU (de un switch),
+                                ! el puerto se deshabilita automáticamente (protección STP)
+sw port-security maximun 2      ! Permite máximo 2 direcciones MAC en este puerto
+sw port-security violation shutdown
+                                ! Si se supera el máximo de MACs, el puerto entra en err-disabled
+sw port-security mac-address sticky
+                                ! Aprende y guarda dinámicamente las MACs en la configuración
+no sh                           ! Activa la interfaz (no shutdown)
+exit                            ! Sale de la configuración de la interfaz
+
+! --- PUERTO DE ACCESO FA0/17 → VLAN 500 (ACADEMICOS) ---
+int fa0/17                      ! Entra a la interfaz FastEthernet 0/17
+sw mo acc                       ! Configura el puerto en modo acceso
+sw acc vlan 500                 ! Asigna la VLAN 500
+spanning-tree portfast          ! Habilita PortFast (dispositivo final)
+spanning-tree bpduguard enable  ! Habilita BPDU Guard (protección contra switches no autorizados)
+sw port-security maximun 2      ! Máximo 2 MACs permitidas
+sw port-security violation shutdown
+                                ! Violación apaga el puerto
+sw port-security mac-address sticky
+                                ! Aprende MACs dinámicamente y las guarda
+no sh                           ! Activa la interfaz
+exit
+
+! --- PUERTO DE ACCESO FA0/6 → VLAN 300 (DOCENTES_ESTUDIANTES) ---
+int fa0/6                       ! Entra a la interfaz FastEthernet 0/6
+sw mo acc                       ! Modo acceso
+sw acc vlan 300                 ! Asigna la VLAN 300 (Docentes/Estudiantes)
+spanning-tree portfast          ! PortFast activado
+spanning-tree bpduguard enable  ! BPDU Guard activado
+sw port-security maximun 2      ! Máximo 2 MACs
+sw port-security violation shutdown
+                                ! Violación apaga el puerto
+sw port-security mac-address sticky
+                                ! MACs aprendidas se guardan en running-config
+no sh                           ! Activa la interfaz
+exit
+
+! --- PUERTO DE ACCESO FA0/20 → VLAN 300 (DOCENTES_ESTUDIANTES) ---
+int fa0/20                      ! Entra a la interfaz FastEthernet 0/20
+sw mo acc                       ! Modo acceso
+sw acc vlan 300                 ! Asigna la VLAN 300
+spanning-tree portfast          ! PortFast activado
+spanning-tree bpduguard enable  ! BPDU Guard activado
+sw port-security maximun 2      ! Máximo 2 MACs
+sw port-security violation shutdown
+                                ! Violación apaga el puerto
+sw port-security mac-address sticky
+                                ! MACs aprendidas se guardan
+no sh                           ! Activa la interfaz
+exit
+
+! ============================================================
+! ETHERCHANNEL Po1 HACIA SW2 (LACP - Agregación de enlaces)
+! ============================================================
+! Se crea un EtherChannel con LACP (802.3ad) usando fa0/23 y fa0/24
+! Esto agrupa dos enlaces físicos en uno lógico para mayor ancho de banda y redundancia
+
+interface port-channel 1                        ! Entra a la interfaz lógica EtherChannel 1
+ switchport mode trunk                          ! Configura el EtherChannel como trunk (multi-VLAN)
+ switchport trunk native vlan 999               ! La VLAN nativa del trunk es la 999 (sin etiquetar)
+ switchport trunk allowed vlan 300,500,999      ! Solo permite el paso de las VLANs 300, 500 y 999
+ switchport nonegotiate                         ! Desactiva DTP (no negocia el modo trunk automáticamente)
+
+interface range fastEthernet 0/23-24            ! Entra a las interfaces físicas fa0/23 y fa0/24
+ switchport mode trunk                          ! Las pone en modo trunk
+ switchport trunk native vlan 999               ! VLAN nativa 999
+ switchport trunk allowed vlan 300,500,999      ! VLANs permitidas
+ switchport nonegotiate                         ! Deshabilita DTP
+ channel-group 1 mode active                   ! Agrega estas interfaces al EtherChannel 1 en modo ACTIVE
+                                               ! (LACP activo: inicia la negociación del canal)
+ no shutdown                                   ! Activa las interfaces
+
+! --- TRUNK HACIA R1 (Router para inter-VLAN routing con HSRP) ---
+int gig0/1                              ! Entra a la interfaz GigabitEthernet 0/1
+sw mo tru                               ! Configura el puerto como trunk
+sw tru native vlan 999                  ! VLAN nativa 999
+sw tru allowed vlan 300,500,999         ! VLANs permitidas en el trunk
+switchport nonegotiate                  ! Deshabilita DTP
+no sh                                   ! Activa la interfaz
+exit
+
+! --- SPANNING TREE: ROL SECUNDARIO ---
+spanning-tree vlan 300,500,99 root secondary
+                                        ! Configura SW1 como Puente Raíz Secundario para las VLANs
+                                        ! indicadas (si SW2 falla, SW1 toma el rol de raíz)
+end                                     ! Sale al modo EXEC privilegiado
+
+! --- VERIFICACIÓN ---
+show EtherChannel summary               ! Muestra el resumen del EtherChannel (estado, interfaces, protocolo)

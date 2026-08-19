@@ -1,0 +1,72 @@
+! ============================================================
+! CONFIGURACIÓN SW4 - Switch de Acceso (Área WiFi/WLC)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname SW4                    ! Asigna el nombre "SW4" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia que se muestra al conectarse
+
+! --- CREACIÓN DE VLANs ---
+vlan 6                          ! Crea la VLAN 6
+name WIFi                       ! Asigna el nombre "WiFi" (red para dispositivos inalámbricos)
+vlan 7                          ! Crea la VLAN 7
+name NATIva                     ! Asigna el nombre "Nativa" (VLAN de administración/trunk)
+
+! --- TRUNK HACIA SMC1 (Switch Multicapa) ---
+int gig 0/1                     ! Entra a la interfaz GigabitEthernet 0/1
+sw mo tru                       ! Configura el puerto en modo trunk (transporta múltiples VLANs)
+sw tru native vlan 7            ! La VLAN nativa del trunk es la 7 (tráfico sin etiquetar)
+sw tru all vlan 6,7             ! Solo se permiten las VLANs 6 (WiFi) y 7 (Nativa) en este trunk
+sw nonegotiate                  ! Desactiva DTP para evitar negociación automática del trunk
+no sh                           ! Activa la interfaz
+exit
+
+! --- PUERTO DE ACCESO FA0/2 → VLAN 6 (WIFI) ---
+int fa0/2                       ! Entra a la interfaz FastEthernet 0/2
+sw mo acc                       ! Modo acceso (un solo VLAN)
+sw acc vlan 6                   ! Asigna la VLAN 6 (WiFi) — conecta Access Points u otros dispositivos
+spanning-tree portfast          ! PortFast: el puerto pasa directo a forwarding (dispositivo final)
+spanning-tree bpduguard enable  ! BPDU Guard: si recibe una BPDU, desactiva el puerto
+sw port-security maximun 2      ! Máximo 2 MACs por puerto
+sw port-security violation shutdown
+                                ! Violación del límite: puerto entra en err-disabled (apagado)
+sw port-security mac-address sticky
+                                ! Aprende y guarda dinámicamente las MACs en la configuración
+no sh                           ! Activa la interfaz
+exit
+
+! --- PUERTO DE ACCESO FA0/3 → VLAN 6 (WIFI) ---
+int fa0/3                       ! Entra a la interfaz FastEthernet 0/3
+sw mo acc                       ! Modo acceso
+sw acc vlan 6                   ! Asigna la VLAN 6
+spanning-tree portfast          ! PortFast activado
+spanning-tree bpduguard enable  ! BPDU Guard activado
+sw port-security maximun 2      ! Máximo 2 MACs
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh 
+exit
+
+! --- PUERTO DE ACCESO GIG0/2 → VLAN 6 (WIFI) ---
+int gig0/2                      ! Entra a la interfaz GigabitEthernet 0/2
+sw mo acc                       ! Modo acceso
+sw acc vlan 6                   ! Asigna la VLAN 6 (WiFi) — usada para el WLC u otro dispositivo
+no sh                           ! Activa la interfaz
+exit
+end                             ! Sale al modo EXEC privilegiado
+
+! --- VERIFICACIÓN ---
+show vlan brief                 ! Muestra resumen de VLANs y sus puertos asignados
+show interfaces trunk           ! Muestra las interfaces en modo trunk y las VLANs permitidas
+
+! ============================================================
+! CONTINUACIÓN - Puerto adicional
+! ============================================================
+
+interface fa0/4                 ! Entra a la interfaz FastEthernet 0/4
+sw mo acc                       ! Modo acceso
+sw acc vlan 6                   ! Asigna la VLAN 6 (WiFi)
+spanning-tree portfast          ! PortFast activado (dispositivo final)
+no sh                           ! Activa la interfaz

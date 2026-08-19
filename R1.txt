@@ -1,0 +1,59 @@
+! ============================================================
+! CONFIGURACIÓN R1 - Router (HSRP Standby / Secundario)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname R1                     ! Asigna el nombre "R1" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia mostrado al conectarse
+
+! --- ENLACE P2P HACIA R3-DHCP ---
+interface gigabitEthernet 0/0/0         ! Entra a la interfaz GigabitEthernet 0/0/0
+ ip address 8.5.75.102 255.255.255.252  ! Asigna la IP del enlace punto a punto /30 hacia R3-DHCP
+                                        ! Red: 8.5.75.100/30 | R3: .101 | R1: .102
+ no shutdown                            ! Activa la interfaz
+
+! --- DESACTIVAR INTERFAZ FÍSICA (si aplica) ---
+int gig0/0                      ! Entra a gig0/0 (puede ser una interfaz alternativa)
+no ip add                       ! Elimina cualquier IP asignada
+no sh                           ! Activa la interfaz (sin IP, solo para asegurarse que no cause errores)
+
+! ============================================================
+! SUBINTERFACES PARA ENRUTAMIENTO INTER-VLAN (Router-on-a-Stick)
+! ============================================================
+! R1 recibe tráfico trunk de SW1 y enruta entre VLANs usando subinterfaces dot1Q
+
+! --- SUBINTERFAZ PARA VLAN 300 (DOCENTES_ESTUDIANTES) ---
+interface gigabitEthernet 0/0.300       ! Crea subinterfaz .300 en gig0/0 (para VLAN 300)
+ encapsulation dot1Q 300               ! Encapsula el tráfico con etiqueta 802.1Q para VLAN 300
+ ip address 8.5.64.2 255.255.248.0     ! IP de R1 en la VLAN 300: 8.5.64.2/21 (segunda dirección usable)
+ standby 30 ip 8.5.64.1               ! HSRP grupo 30: IP virtual compartida (Gateway para hosts) = 8.5.64.1
+ standby 30 priority 110              ! Prioridad 110 → R1 es STANDBY (R2 tiene 120 = Activo)
+ standby 30 preempt                   ! Preempt: si R1 recupera mayor prioridad, retoma el rol activo
+ ip helper-address 8.5.75.101         ! Redirige solicitudes DHCP broadcast hacia R3-DHCP (8.5.75.101)
+                                       ! (next-hop del lado de R3 que apunta hacia R1)
+
+! --- SUBINTERFAZ PARA VLAN 500 (ACADEMICOS) ---
+interface gigabitEthernet 0/0.500       ! Crea subinterfaz .500 en gig0/0 (para VLAN 500)
+ encapsulation dot1Q 500               ! Encapsula con etiqueta 802.1Q para VLAN 500
+ ip address 8.5.75.34 255.255.255.224  ! IP de R1 en la VLAN 500: 8.5.75.34/27 (segunda dirección usable)
+ standby 50 ip 8.5.75.33              ! HSRP grupo 50: IP virtual (Gateway) = 8.5.75.33
+ standby 50 priority 110              ! Prioridad 110 → R1 es STANDBY (R2 tiene 120 = Activo)
+ standby 50 preempt                   ! Preempt activado
+ ip helper-address 8.5.75.101         ! Redirige DHCP al servidor R3-DHCP
+
+! --- SUBINTERFAZ PARA VLAN 999 (ADMIN_NATIVA) ---
+interface gigabitEthernet 0/0.999       ! Crea subinterfaz .999 (para la VLAN nativa)
+ encapsulation dot1Q 999 native        ! VLAN 999 se trata como nativa (tráfico sin etiquetar en trunk)
+ no ip address                         ! Sin IP asignada (VLAN de administración/nativa sin Gateway propio)
+exit
+
+! --- RUTA ESTÁTICA PREDETERMINADA ---
+ip route 0.0.0.0 0.0.0.0 8.5.75.101   ! Ruta por defecto: todo tráfico desconocido
+                                        ! se envía hacia R3-DHCP (8.5.75.101) como next-hop
+
+! --- VERIFICACIÓN ---
+show standby brief                      ! Muestra el estado HSRP resumido (activo, standby, IP virtual)
+show ip interface brief                 ! Muestra el estado y las IPs de todas las interfaces
+show ip route                           ! Muestra la tabla de enrutamiento

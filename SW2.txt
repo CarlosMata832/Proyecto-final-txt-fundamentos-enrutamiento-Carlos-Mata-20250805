@@ -1,0 +1,120 @@
+! ============================================================
+! CONFIGURACIÓN SW2 - Switch de Distribución (Puente Raíz STP)
+! ============================================================
+
+Enable                          ! Entra al modo EXEC privilegiado
+Configure Terminal              ! Entra al modo de configuración global
+Hostname SW2                    ! Asigna el nombre "SW2" al dispositivo
+banner motd #SOLO ACCESO AUTORIZADO - Carlos Alexander Mata Bello - 2025-0805 #
+                                ! Mensaje de advertencia mostrado al conectarse
+
+! --- CREACIÓN DE VLANs ---
+vlan 300                        ! Crea la VLAN 300
+name DOCENTES_ESTUDIANTES       ! Nombre de la VLAN 300
+vlan 500                        ! Crea la VLAN 500
+name ACADEMICOS                 ! Nombre de la VLAN 500
+vlan 999                        ! Crea la VLAN 999 (VLAN nativa/administración)
+name ADMIN_NATIVA               ! Nombre de la VLAN 999
+exit                            ! Sale del modo VLAN
+
+! --- PUERTO DE ACCESO FA0/5 → VLAN 300 (DOCENTES_ESTUDIANTES) ---
+int fa0/5                       ! Entra a la interfaz FastEthernet 0/5
+sw mo acc                       ! Modo acceso (un solo VLAN)
+sw acc vlan 300                 ! Asigna la VLAN 300
+spanning-tree portfast          ! PortFast: el puerto pasa directo a forwarding (dispositivo final)
+spanning-tree bpduguard enable  ! BPDU Guard: si recibe BPDU, deshabilita el puerto (protección STP)
+sw port-security maximun 2      ! Máximo 2 MACs permitidas
+sw port-security violation shutdown
+                                ! Si se viola el límite, el puerto se apaga (err-disabled)
+sw port-security mac-address sticky
+                                ! Aprende y guarda MACs dinámicamente
+no sh                           ! Activa la interfaz
+exit
+
+! --- PUERTO DE ACCESO FA0/6 → VLAN 300 (DOCENTES_ESTUDIANTES) ---
+int fa0/6
+sw mo acc
+sw acc vlan 300
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh 
+exit
+
+! --- PUERTO DE ACCESO FA0/20 → VLAN 300 (DOCENTES_ESTUDIANTES) ---
+int fa0/20
+sw mo acc
+sw acc vlan 300
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh 
+exit
+
+! --- PUERTO DE ACCESO FA0/9 → VLAN 500 (ACADEMICOS) ---
+int fa0/9                       ! Entra a la interfaz FastEthernet 0/9
+sw mo acc                       ! Modo acceso
+sw acc vlan 500                 ! Asigna la VLAN 500
+spanning-tree portfast          ! PortFast activado
+spanning-tree bpduguard enable  ! BPDU Guard activado
+sw port-security maximun 2      ! Máximo 2 MACs
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh 
+exit
+
+! --- PUERTO DE ACCESO FA0/17 → VLAN 500 (ACADEMICOS) ---
+int fa0/17
+sw mo acc
+sw acc vlan 500
+spanning-tree portfast
+spanning-tree bpduguard enable
+sw port-security maximun 2
+sw port-security violation shutdown
+sw port-security mac-address sticky
+no sh 
+exit
+
+! ============================================================
+! ETHERCHANNEL Po1 HACIA SW1 (LACP - Agregación de enlaces)
+! ============================================================
+! Agrupa fa0/23 y fa0/24 en un canal lógico de mayor ancho de banda y redundancia
+
+interface port-channel 1                        ! Interfaz lógica del EtherChannel 1
+ switchport mode trunk                          ! Modo trunk (transporta múltiples VLANs)
+ switchport trunk native vlan 999               ! VLAN nativa (sin etiquetar): VLAN 999
+ switchport trunk allowed vlan 300,500,999      ! VLANs permitidas: 300, 500 y 999
+ switchport nonegotiate                         ! Desactiva DTP (no negocia trunk automáticamente)
+
+interface range fastEthernet 0/23-24            ! Interfaces físicas que forman el EtherChannel
+ switchport mode trunk                          ! Modo trunk
+ switchport trunk native vlan 999               ! VLAN nativa
+ switchport trunk allowed vlan 300,500,999      ! VLANs permitidas
+ switchport nonegotiate                         ! Sin DTP
+ channel-group 1 mode active                   ! Modo ACTIVE de LACP (inicia negociación)
+ no shutdown                                   ! Activa las interfaces
+
+! --- TRUNK HACIA R2 (Router HSRP Activo para VLANs 300, 500, 999) ---
+interface gigabitEthernet 0/1                   ! Entra a la interfaz GigabitEthernet 0/1
+ switchport mode trunk                          ! Configura como trunk
+ switchport trunk native vlan 999               ! VLAN nativa 999
+ switchport trunk allowed vlan 300,500,999      ! VLANs permitidas
+ switchport nonegotiate                         ! Desactiva DTP
+ no shutdown                                   ! Activa la interfaz
+
+! --- SPANNING TREE: ROL DE PUENTE RAÍZ PRIMARIO ---
+spanning-tree vlan 300,500,999 root primary
+                                ! Configura SW2 como el Puente Raíz (Root Bridge) principal
+                                ! para las VLANs 300, 500 y 999. Esto asegura que todo
+                                ! el tráfico de estas VLANs pase a través de SW2
+end                             ! Sale al modo EXEC privilegiado
+
+! --- VERIFICACIÓN ---
+show EtherChannel summary               ! Muestra estado del EtherChannel (activo, protocolos, interfaces)
+show spanning-tree vlan 300             ! Verifica el estado de STP para la VLAN 300 (SW2 debe ser Root)
+show spanning-tree vlan 500             ! Verifica el estado de STP para la VLAN 500
+show spanning-tree vlan 999             ! Verifica el estado de STP para la VLAN 999
